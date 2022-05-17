@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Invariance Through Latent Alignment</title>
+    <meta name="description"
+          content="
+                A robot's deployment environment often involves perceptual changes that differ from what it has experienced during training.
+                Standard practices such as data augmentation attempt to bridge this gap
+                by augmenting source images in an effort to extend the support of the training distribution
+                to better cover what the agent might experience at test time.
+                In many cases, however, it is impossible to know test-time distribution-shift a priori, making these schemes infeasible.
+                In this paper, we introduce a general approach, called Invariance Through Latent Alignment (ILA),
+                that improves the test-time performance of a visuomotor control policy in deployment environments with unknown perceptual variations.
+                ILA performs unsupervised adaptation at deployment-time by matching the distribution of latent features on the target domain
+                to the agent's prior experience, without relying on paired data.
+                Although simple, we show that this idea leads to surprising improvements on a variety of challenging adaptation scenarios, including changes in lighting conditions,
+                the content in the scene, and camera poses. We present results on calibrated control benchmarks in simulation---the distractor control suite---and a physical robot under a sim-to-real setup.
+                ">
+
+    <meta name="keywords" content="Deep Reinforcement Learning, Deep Learning, Domain Adaptation, Generalization">
+    <meta name="author" content="Takuma Yoneda <takuma@ttic.edu>">
+    <meta property="og:title" content="Invariance Through Inference">
+    <meta property="og:image" content="media/thumbnail.jpg">
+    <meta name="twitter:creator" content="@takuma_ynd">
+    <meta name="twitter:card" content="summary">
+    <meta property="og:description"
+          content="A robot's deployment environment often involves perceptual changes that differ from what it has experienced during training.
+                    Standard practices such as data augmentation attempt to bridge this gap
+                    by augmenting source images in an effort to extend the support of the training distribution
+                    to better cover what the agent might experience at test time.
+                    In many cases, however, it is impossible to know test-time distribution-shift a priori, making these schemes infeasible.
+                    In this paper, we introduce a general approach, called Invariance Through Latent Alignment (ILA),
+                    that improves the test-time performance of a visuomotor control policy in deployment environments with unknown perceptual variations.
+                    ILA performs unsupervised adaptation at deployment-time by matching the distribution of latent features on the target domain
+                    to the agent's prior experience, without relying on paired data.
+                    Although simple, we show that this idea leads to surprising improvements on a variety of challenging adaptation scenarios, including changes in lighting conditions,
+                    the content in the scene, and camera poses. We present results on calibrated control benchmarks in simulation---the distractor control suite---and a physical robot under a sim-to-real setup.
+                    ">
+    <link rel="stylesheet" href="./style.css">
+    <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+    <script type="text/javascript" id="MathJax-script" async
+            src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js">
+    </script>
+
+</head>
+<body>
+<article>
+    <section id="frontmatter">
+        <h1>Invariance Through Latent Alignment</h1>
+        <h2 id="authors" style="margin-bottom: 0;"><a href="http://takuma.yoneda.xyz">Takuma Yoneda</a>,<sup>*1</sup> <a href="https://www.episodeyang.com">Ge Yang</a>,<sup>*2, 3</sup>
+            <a href="https://ttic.edu/walter">Matthew Walter</a>,<sup>1</sup> <a href="https://bstadie.github.io">Bradly Stadie</a><sup>1</sup>
+        </h2>
+        <h3 style="margin-top: 10px;"><sup>1</sup>TTI-Chicago,&nbsp; <sup>2</sup>MIT CSAIL,&nbsp; <sup>3</sup>IAIFI</h3>
+        <p style="text-align: center; font-weight: lighter; font-size: 0.8em; margin-top: 0">*: Equal contribution</p>
+        <h3 id="links">
+            <a href="https://github.com/invariance-through-latent-alignment/ila">CODE</a
+            >|<a href="https://arxiv.org/abs/2112.08526">PAPER</a>
+        </h3>
+        <h2>Overview</h2>
+        <p><b>Invariance Through Latent Alignment</b> (ILA) is a self-supervised adaptation method for a Reinforcement Learning agent.
+            ILA adapts the encoder of an agent to a target domain without access to reward.</p>
+        <p>
+            <video autoplay muted loop playsinline width="60%" height="auto" class="center-wide">
+                <source src="media/demo-video-noanimation.webm" type="video/webm">
+            </video>
+        </p>
+        <!-- <iframe class="video" width="100%" height="338px" src="https://www.youtube.com/embed/KtvTt3U5bME?rel=0"
+             frameborder="0" allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture"
+             allowfullscreen></iframe> -->
+    </section>
+    <h2 id="abstract">Abstract</h2>
+    <p>
+        A robot's deployment environment often involves perceptual changes that differ from what it has experienced during training.
+        Standard practices such as data augmentation attempt to bridge this gap
+        by augmenting source images in an effort to extend the support of the training distribution
+        to better cover what the agent might experience at test time.
+        In many cases, however, it is impossible to know test-time distribution-shift <i>a priori</i>, making these schemes infeasible.
+        In this paper, we introduce a general approach, called <strong><u>I</u></strong>nvariance Through <strong><u>L</u></strong>atent <strong><u>A</u></strong>lignment (<strong>ILA</strong>),
+        that improves the test-time performance of a visuomotor control policy in deployment environments with unknown perceptual variations.
+        ILA performs unsupervised adaptation at deployment-time by matching the distribution of latent features on the target domain
+        to the agent's prior experience, without relying on paired data.
+        Although simple, we show that this idea leads to surprising improvements on a variety of challenging adaptation scenarios, including changes in lighting conditions,
+        the content in the scene, and camera poses. We present results on calibrated control benchmarks in simulation --the distractor control suite-- and a physical robot under a sim-to-real setup.
+    </p>
+
+    <h2 id="motivation">Motivation</h3>
+    <p>
+        Pixel-based RL agents are known to be brittle against distractions, due to its large shift in observation space.
+        A typical approach to this issue is to apply <b>data augmentation</b>.
+        This corresponds to expanding the support of the training distribution, as shown in the green circle below.
+        <!-- SVEA, DrQ-v2 and SODA are among those methods. -->
+    </p>
+    <p>
+        Training with augmented observations makes the agent more robust against distractions,
+        however, as the target distribution (the pink circle below) goes far away from training,
+        more and more augmentations becomes necessary, which becomes infeasible at some point.
+        <img src="./media/motivation2.png" alt="motivation" class="center-narrow">
+    </p>
+
+    <p>
+        When we have some knowledge of the target (test) domain, a better approach would be <b>domain adaptation</b>
+        that adapt the agent to the target (test) domain.
+
+        In this paper, we assume the target domain is accessible except for its reward, and
+        propose <b>Invariance through Latent Alignment</b> (ILA) that performs self-supervised domain adaptation.
+        Specifically, ILA adapts an observation encoder
+        so that the pretrained downstream policy \(\pi(a|z)\) can transfer to the target domain without modification.
+
+        <!-- <img src="./motivation.png" alt="ITI-motivation" class="center"> -->
+
+        <!-- The shift in observation space makes the corresponding latent space largely deviate.
+             The task of ITI is to bring it back to align the latent structures, by adapting the encoder. -->
+    </p>
+    <p>
+        We consider that it is <u>the large distribution shift in the latent space</u> that causes a poor performance in the target domain.
+        Our approach attempts to <i>undo</i> this shift, by adapting the encoder based on two objectives: <i>distribution matching</i> and <i>dynamics consistency</i>.
+    </p>
+
+    <h2 id="method">Method</h2>
+    <p>
+        We deploy a random policy in the source domain, and encode each observation with pretrained encoder.
+        The encoded observations and actions are stored into <i>source buffer</i>.
+        <!-- Given an agent pretrained in a source domain, a random policy collects transitions in the source domain.
+             The observations are encoded with pretrained encoder, and the resulting <i>latent</i> transitions \((z_t, a_t, z_{t+1})\) are stored into source buffer. -->
+        <!-- It should be noted that we encode observations and store <i>latent</i> transitions . -->
+        <img src="./media/fill-source-buffer.png" alt="Fill source buffer" class="center-narrow">
+    </p>
+    <p>
+        Succeedingly, we pretrain dynamics networks \(C_\text{fwd}\) and \(C_\text{inv}\) using samples from the buffer.
+        These models learn forward and inverse dynamics (i.e., \(\hat{z}_{t+1} = C_\text{fwd}(z_t, a_t)\), \(\hat{a}_t = C_\text{inv}(z_t, z_{t+1})\)).
+        We can think of this step as implicitly encoding the latent transition structure of the source domain into the weights of these networks.
+        <img src="./media/train-dyn.png" alt="Train Dynamics Consistency Networks" class="center-narrow">
+    </p>
+    <!-- <p>
+         We also collect random transitions in the target domain. But this time we store transitions with raw observations \((o_t, a_t, o_{t+1})\).
+         <img src="./media/preprocess2.png" alt="ITI-preprocess" width="60%" class="center">
+         </p> -->
+    <p>
+        Once the agent faces the target domain,
+        <!-- Once the preprocessing steps described above are completed, the main adaptation step begins. -->
+        we use sample transitions from source and target buffer, and adapt encoder \(F\) (intialized to the pretrained weights) and discriminator \(D\) (initialized randomly).
+
+
+        <!-- ITI adapts encoder following the two objectives: <i>distribution matching</i> and <i>dynamics consistency</i>. -->
+        <!-- <img src="./method.png" alt="ITI" class="center"> -->
+        <video autoplay muted loop playsinline class="center" poster="media/method.png">
+            <source src="media/ILA-method.webm" type="video/webm">
+            <!-- <source src="media/method.mp4" type="video/mp4"> -->
+        </video>
+        <small>* You can download the <strong>static version <a href="media/method-static.png">here</a></small></strong>
+
+    </p>
+
+    <h2 id="experiments">Experiments</h2>
+    <p>
+        To experiment our adaptation scheme on various type of target domains, we deployed our agents in DeepMind Control suite.
+        Especially, we employed a modified version of DistractCS that provides <i>color</i>, <i>camera</i>, and <i>background distractions</i> to DeepMind Control suite.
+        <img src="./media/intensity.png" alt="intensity" class="center" style="margin-top: 50px">
+    </p>
+    <p>
+        The plot below shows the performance of agents against distraction intensities.
+        DrQ-v2 and SVEA are extensions of SAC that incorporates data augmentation.
+        All of the methods are first trained in source domain (i.e., standard, non-distracting domain), and then directly deployed in taget domain (zero-shot).
+        <br />
+        Dashed lines represent zero-shot performances, and solid lines represent their performance after adaptation with ILA.
+        Each point in this figure is computed from 9 domains and 5 random seeds.
+        <!-- As expected, the performance drops as the intensity goes up. -->
+        <!-- Solid lines represent their performance after adapting the agents with ITI. -->
+
+        <img src="./media/main-plot.png" alt="main-result" class="center-wide" style="margin-top: 10px">
+    </p>
+    <p>
+        Here is the domain-wise breakdown of background distraction with intensity \(1.0\).
+        <img src="./media/main-table.png" alt="main-table" class="center-wide">
+    </p>
+
+    <h2 id="sim-to-real">Sim-to-real</h2>
+    <p>
+        We trained a SVEA agent on a reach task with a simulated Fetch robot, and then deployed the policy on a UR5 robot in the real world.
+    </p>
+
+    <p>
+        <img src="./media/sim-to-real.png" alt="main-result" class="center">
+    </p>
+
+    <p>
+        We find that the zero-shot policy keeps producing the same action regardless of the given observation. In contrast, the policy adapted with ILA shows the ability to consistently reach the goal state.
+        Crucially, our adaptation only requires unpaired trajectories in both domains (simulation and real). What’s more, it does not need access to reward in the target (real) environment.
+    </p>
+
+    <p>
+        <iframe class="center" width="560" height="315" src="https://www.youtube.com/embed/QSCbTsormgo" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+    </p>
+    <p>
+        <small>* The video is played in 20x speed.</small>
+    </p>
+
+    <h2>BibTex</h2>
+    <pre>@misc{yoneda2021invariance,
+        title={Invariance Through Latent Alignment},
+        author={Takuma Yoneda and Ge Yang and Matthew R. Walter and Bradly Stadie},
+        year={2021},
+        eprint={2112.08526},
+        archivePrefix={arXiv},
+        primaryClass={cs.LG}
+    }</pre>
+
+</article>
+</body>
+</html>
